@@ -1,0 +1,14 @@
+{
+  "make": {"team_id": 1857377, "scenario_genereer": 9372797, "scenario_pipeline": 9372805},
+  "drive": {
+    "root": "1cVaw956KgeMlFrtNxTGCn5QYsdfb5mV7",
+    "categories": {
+      "travel": "1WAzIvG8XKYT5gojV1NzxQNjLD3ux0QKO",
+      "cat": "1wsuIVpgq1QKK2swwhs0_j4cqAdNQhPqE",
+      "bar_cafe": "1UAkw-iwq4jY3LaUdWdnOc7d93k3xrxJX"
+    }
+  },
+  "etsy": {"shop": "ThePosterLife", "taxonomy_digital_prints": 2078, "default_price": "6.95", "default_quantity": "999"},
+  "social": {"instagram_account": "17841415746252780", "facebook_page": "1116906191512006", "pinterest_board_travel": "1127237050422539145"},
+  "formats": {"a_sizes_300dpi": {"A1": [7016, 9933], "A2": [4961, 7016], "A3": [3508, 4961], "A4": [2480, 3508], "A5": [1748, 2480]}}
+}
