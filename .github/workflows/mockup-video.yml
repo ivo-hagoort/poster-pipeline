@@ -1,0 +1,90 @@
+name: Mockup Video
+
+# Triggered by Make via the GitHub API (workflow_dispatch).
+on:
+  workflow_dispatch:
+    inputs:
+      city:
+        description: "City name, e.g. Antwerp"
+        required: true
+        type: string
+      image_urls:
+        description: "JSON array of exactly 7 public image URLs (mockup 1..7)"
+        required: true
+        type: string
+      callback_url:
+        description: "Make webhook URL to notify when done (optional)"
+        required: false
+        type: string
+
+permissions:
+  contents: write   # lets the built-in GITHUB_TOKEN create the release
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Ensure ffmpeg
+        run: ffmpeg -version >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+
+      - name: Download the 7 mockups
+        run: |
+          set -euo pipefail
+          mkdir -p src out
+          echo '${{ inputs.image_urls }}' > urls.json
+          count=$(jq 'length' urls.json)
+          if [ "$count" -ne 7 ]; then
+            echo "Expected 7 image URLs, got $count"; exit 1
+          fi
+          for i in $(seq 0 6); do
+            url=$(jq -r ".[$i]" urls.json)
+            n=$((i+1))
+            echo "downloading $n: $url"
+            curl -fSL --retry 3 -o "src/$n.png" "$url"
+          done
+          ls -la src
+
+      - name: Render MP4
+        run: |
+          set -euo pipefail
+          python3 scripts/make_video.py --src ./src --out ./out/video.mp4
+          ls -la out
+
+      - name: Publish as release asset
+        id: publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          city_slug=$(echo "${{ inputs.city }}" | tr ' ' '-' | tr -cd '[:alnum:]-')
+          fname="Travel-${city_slug}-mockup-video.mp4"
+          tag="video-${city_slug}-${{ github.run_id }}-${{ github.run_attempt }}"
+          mv out/video.mp4 "out/${fname}"
+          gh release create "$tag" "out/${fname}" \
+            --title "$tag" --notes "Mockup video for ${{ inputs.city }}"
+          owner_repo="${{ github.repository }}"
+          url="https://github.com/${owner_repo}/releases/download/${tag}/${fname}"
+          echo "video_url=$url"      >> "$GITHUB_OUTPUT"
+          echo "tag=$tag"            >> "$GITHUB_OUTPUT"
+          echo "filename=$fname"     >> "$GITHUB_OUTPUT"
+          {
+            echo "### Mockup video ready"
+            echo "- city: ${{ inputs.city }}"
+            echo "- url: $url"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify Make
+        if: ${{ inputs.callback_url != '' }}
+        run: |
+          set -euo pipefail
+          curl -fSL -X POST "${{ inputs.callback_url }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+                  --arg city '${{ inputs.city }}' \
+                  --arg url  '${{ steps.publish.outputs.video_url }}' \
+                  --arg tag  '${{ steps.publish.outputs.tag }}' \
+                  --arg file '${{ steps.publish.outputs.filename }}' \
+                  '{status:"done", city:$city, video_url:$url, tag:$tag, filename:$file}')"
