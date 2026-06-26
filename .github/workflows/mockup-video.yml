@@ -43,9 +43,10 @@ jobs:
           set -euo pipefail
           mkdir -p src out
           IFS=',' read -ra IDS <<< "${{ inputs.file_ids }}"
-          if [ "${#IDS[@]}" -ne 7 ]; then
-            echo "Expected 7 file ids, got ${#IDS[@]}"; exit 1
+          if [ "${#IDS[@]}" -lt 2 ]; then
+            echo "Expected at least 2 file ids, got ${#IDS[@]}"; exit 1
           fi
+          echo "Got ${#IDS[@]} file ids"
           n=0
           for id in "${IDS[@]}"; do
             n=$((n+1))
