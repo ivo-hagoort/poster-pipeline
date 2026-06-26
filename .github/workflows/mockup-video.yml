@@ -69,7 +69,7 @@ jobs:
         run: |
           set -euo pipefail
           city_slug=$(echo "${{ inputs.city }}" | tr ' ' '-' | tr -cd '[:alnum:]-')
-          fname="Travel-${city_slug}-mockup-video.mp4"
+          fname="Travel-${city_slug}-video.mp4"
           tag="video-${city_slug}-${{ github.run_id }}-${{ github.run_attempt }}"
           mv out/video.mp4 "out/${fname}"
           gh release create "$tag" "out/${fname}" \
