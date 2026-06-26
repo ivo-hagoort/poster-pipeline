@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
 Mockup video renderer.
-Reads 7 PNGs from a source dir (named 1.png .. 7.png), builds a 1000x1000
+Reads N PNGs from a source dir (named 1.png .. N.png), builds a 1000x1000
 MP4: gentle CENTERED zoom per slide with ease-in-out (alternating in/out,
-no pan), soft crossfades, no audio, ~7.7s. High quality (CRF).
+no pan), soft crossfades, no audio. High quality (CRF).
 Smoothness: large prescale + 60fps to kill zoompan stepping.
+Works with any number of slides (>= 1).
 
 Usage:
   python3 make_video.py --src ./src --out ./out/video.mp4
@@ -19,15 +20,28 @@ S = 1000          # output square size
 PRE = 4000        # large prescale -> finer sub-pixel motion
 CRF = "18"        # visual quality (lower = better)
 
-ZAMP = [0.05, 0.045, 0.055, 0.05, 0.045, 0.055, 0.05]
-ZIN  = [True, False, True, False, True, False, True]
+# base patterns, cycled to whatever slide count we get
+ZAMP_BASE = [0.05, 0.045, 0.055]
+
+
+def discover(src):
+    imgs = []
+    i = 1
+    while True:
+        p = os.path.join(src, f"{i}.png")
+        if os.path.isfile(p):
+            imgs.append(p)
+            i += 1
+        else:
+            break
+    return imgs
 
 
 def build(src, out):
-    imgs = [os.path.join(src, f"{i}.png") for i in range(1, 8)]
-    for p in imgs:
-        if not os.path.isfile(p):
-            print(f"missing input: {p}", flush=True); sys.exit(1)
+    imgs = discover(src)
+    n = len(imgs)
+    if n < 1:
+        print(f"no input pngs found in {src}", flush=True); sys.exit(1)
 
     inputs = []
     for img in imgs:
@@ -37,12 +51,14 @@ def build(src, out):
     ease = f"(3*{P}*{P}-2*{P}*{P}*{P})"   # smoothstep 0..1
 
     parts = []
-    for i, (amp, zin) in enumerate(zip(ZAMP, ZIN)):
+    for i in range(n):
+        amp = ZAMP_BASE[i % len(ZAMP_BASE)]
+        zin = (i % 2 == 0)                  # alternate zoom in / out
         if zin:
-            z = f"1.0+{amp}*{ease}"             # ease 1.0 -> 1+amp
+            z = f"1.0+{amp}*{ease}"          # ease 1.0 -> 1+amp
         else:
-            z = f"1.0+{amp}-{amp}*{ease}"       # ease 1+amp -> 1.0
-        x = "(iw-iw/zoom)/2"                     # centered, no pan
+            z = f"1.0+{amp}-{amp}*{ease}"    # ease 1+amp -> 1.0
+        x = "(iw-iw/zoom)/2"                 # centered, no pan
         y = "(ih-ih/zoom)/2"
         parts.append(
             f"[{i}:v]scale={PRE}:{PRE}:flags=lanczos,"
@@ -50,14 +66,17 @@ def build(src, out):
             f"setpts=PTS-STARTPTS,setsar=1,format=yuv420p[v{i}]"
         )
 
-    prev = "v0"
-    for k in range(1, 7):
-        off = k * (C - T)
-        lbl = f"x{k}"
-        parts.append(
-            f"[{prev}][v{k}]xfade=transition=fade:duration={T}:offset={off:.5f}[{lbl}]"
-        )
-        prev = lbl
+    if n == 1:
+        prev = "v0"
+    else:
+        prev = "v0"
+        for k in range(1, n):
+            off = k * (C - T)
+            lbl = f"x{k}"
+            parts.append(
+                f"[{prev}][v{k}]xfade=transition=fade:duration={T}:offset={off:.5f}[{lbl}]"
+            )
+            prev = lbl
 
     filtergraph = ";".join(parts)
     os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -75,7 +94,8 @@ def build(src, out):
     if r.returncode != 0:
         print(f"FAILED\n{r.stderr[-3000:]}", flush=True); sys.exit(1)
     sz = os.path.getsize(out)
-    print(f"OK {out} {sz} bytes ({sz/1024/1024:.2f} MB) | {7*C-6*T:.2f}s @ {FPS}fps", flush=True)
+    dur = n * C - (n - 1) * T if n > 1 else C
+    print(f"OK {out} {sz} bytes ({sz/1024/1024:.2f} MB) | {n} slides | {dur:.2f}s @ {FPS}fps", flush=True)
 
 
 if __name__ == "__main__":
