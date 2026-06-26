@@ -8,12 +8,20 @@ on:
         description: "City name, e.g. Antwerp"
         required: true
         type: string
-      image_urls:
-        description: "JSON array of exactly 7 public image URLs (mockup 1..7)"
+      file_ids:
+        description: "Comma-separated Drive file IDs of the 7 mockups (mockup_ids)"
         required: true
         type: string
       callback_url:
         description: "Make webhook URL to notify when done (optional)"
+        required: false
+        type: string
+      record_key:
+        description: "Ledger record key (passed back unchanged in the callback)"
+        required: false
+        type: string
+      folder_id:
+        description: "Drive folder id for the city (passed back unchanged in the callback)"
         required: false
         type: string
 
@@ -34,14 +42,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p src out
-          echo '${{ inputs.image_urls }}' > urls.json
-          count=$(jq 'length' urls.json)
-          if [ "$count" -ne 7 ]; then
-            echo "Expected 7 image URLs, got $count"; exit 1
+          IFS=',' read -ra IDS <<< "${{ inputs.file_ids }}"
+          if [ "${#IDS[@]}" -ne 7 ]; then
+            echo "Expected 7 file ids, got ${#IDS[@]}"; exit 1
           fi
-          for i in $(seq 0 6); do
-            url=$(jq -r ".[$i]" urls.json)
-            n=$((i+1))
+          n=0
+          for id in "${IDS[@]}"; do
+            n=$((n+1))
+            clean=$(echo "$id" | tr -d '[:space:]')
+            url="https://lh3.googleusercontent.com/d/${clean}=w1600"
             echo "downloading $n: $url"
             curl -fSL --retry 3 -o "src/$n.png" "$url"
           done
@@ -87,4 +96,6 @@ jobs:
                   --arg url  '${{ steps.publish.outputs.video_url }}' \
                   --arg tag  '${{ steps.publish.outputs.tag }}' \
                   --arg file '${{ steps.publish.outputs.filename }}' \
-                  '{status:"done", city:$city, video_url:$url, tag:$tag, filename:$file}')"
+                  --arg key  '${{ inputs.record_key }}' \
+                  --arg fid  '${{ inputs.folder_id }}' \
+                  '{status:"done", city:$city, video_url:$url, tag:$tag, filename:$file, record_key:$key, folder_id:$fid}')"
