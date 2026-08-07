@@ -1,0 +1,118 @@
+name: Normalize Border
+
+# Triggered by Make via the GitHub API (workflow_dispatch).
+# Downloads the generated poster from Drive, rebuilds the canvas so the
+# decorative border has an identical margin on all four sides at exactly 2:3,
+# publishes the result as a release asset and calls Make back.
+on:
+  workflow_dispatch:
+    inputs:
+      city:
+        description: "City name, e.g. Paris"
+        required: true
+        type: string
+      slug:
+        description: "Slug, e.g. Travel-Paris-diorama"
+        required: true
+        type: string
+      file_id:
+        description: "Drive file ID of the poster to normalise (source or hires)"
+        required: true
+        type: string
+      width:
+        description: "Download width from Drive, use the native pixel width"
+        required: false
+        default: "4096"
+        type: string
+      callback_url:
+        description: "Make webhook URL to notify when done"
+        required: false
+        type: string
+      record_key:
+        description: "Ledger record key (passed back unchanged)"
+        required: false
+        type: string
+      folder_id:
+        description: "Drive folder id for the city (passed back unchanged)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install Pillow
+        run: python3 -m pip install --quiet --upgrade pillow numpy
+
+      - name: Download poster from Drive
+        run: |
+          set -euo pipefail
+          mkdir -p src out
+          id=$(echo "${{ inputs.file_id }}" | tr -d '[:space:]')
+          url="https://lh3.googleusercontent.com/d/${id}=w${{ inputs.width }}"
+          echo "downloading $url"
+          curl -fSL --retry 3 -o src/poster.png "$url"
+          ls -la src
+
+      - name: Normalise border
+        id: norm
+        run: |
+          set -euo pipefail
+          python3 scripts/normalize_border.py src/poster.png "out/${{ inputs.slug }}-hires.jpg" | tee norm.log
+          ls -la out
+
+      - name: Publish as release asset
+        id: publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          fname="${{ inputs.slug }}-hires.jpg"
+          tag="border-${{ inputs.slug }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          gh release create "$tag" "out/${fname}" \
+            --title "$tag" --notes "Normalised border for ${{ inputs.city }}"
+          url="https://github.com/${{ github.repository }}/releases/download/${tag}/${fname}"
+          echo "file_url=$url"    >> "$GITHUB_OUTPUT"
+          echo "tag=$tag"         >> "$GITHUB_OUTPUT"
+          echo "filename=$fname"  >> "$GITHUB_OUTPUT"
+          {
+            echo "### Border normalised"
+            echo "- city: ${{ inputs.city }}"
+            echo "- url: $url"
+            echo '```'
+            cat norm.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify Make
+        if: ${{ inputs.callback_url != '' }}
+        run: |
+          set -euo pipefail
+          curl -fSL -X POST "${{ inputs.callback_url }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+                  --arg city '${{ inputs.city }}' \
+                  --arg slug '${{ inputs.slug }}' \
+                  --arg url  '${{ steps.publish.outputs.file_url }}' \
+                  --arg file '${{ steps.publish.outputs.filename }}' \
+                  --arg key  '${{ inputs.record_key }}' \
+                  --arg fid  '${{ inputs.folder_id }}' \
+                  '{status:"done", city:$city, slug:$slug, file_url:$url, filename:$file, record_key:$key, folder_id:$fid}')"
+
+      - name: Notify Make on failure
+        if: ${{ failure() && inputs.callback_url != '' }}
+        run: |
+          curl -fSL -X POST "${{ inputs.callback_url }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+                  --arg city '${{ inputs.city }}' \
+                  --arg slug '${{ inputs.slug }}' \
+                  --arg key  '${{ inputs.record_key }}' \
+                  --arg fid  '${{ inputs.folder_id }}' \
+                  '{status:"error", city:$city, slug:$slug, record_key:$key, folder_id:$fid}')"
