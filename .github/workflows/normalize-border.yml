@@ -67,6 +67,23 @@ jobs:
           python3 scripts/normalize_border.py src/poster.png "out/${{ inputs.slug }}-hires.jpg" | tee norm.log
           ls -la out
 
+      # Second master at ISO/A ratio, built by padding the same border to
+      # 1:sqrt(2). Covers A1-A5 without a second generation. Wider ratios
+      # (3:4, 4:5, 11:14) need far more margin than looks acceptable, so they
+      # are deliberately not produced here - they need a cropped master.
+      - name: Build ISO/A master
+        id: iso
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if python3 scripts/normalize_ratio.py src/poster.png \
+               "out/${{ inputs.slug }}-hires-iso.jpg" --ratio iso | tee -a norm.log; then
+            echo "built=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "built=no"  >> "$GITHUB_OUTPUT"
+          fi
+          ls -la out
+
       - name: Publish as release asset
         id: publish
         env:
@@ -74,17 +91,29 @@ jobs:
         run: |
           set -euo pipefail
           fname="${{ inputs.slug }}-hires.jpg"
+          iso="${{ inputs.slug }}-hires-iso.jpg"
           tag="border-${{ inputs.slug }}-${{ github.run_id }}-${{ github.run_attempt }}"
-          gh release create "$tag" "out/${fname}" \
+          base="https://github.com/${{ github.repository }}/releases/download/${tag}"
+
+          assets=("out/${fname}")
+          [ -f "out/${iso}" ] && assets+=("out/${iso}")
+          gh release create "$tag" "${assets[@]}" \
             --title "$tag" --notes "Normalised border for ${{ inputs.city }}"
-          url="https://github.com/${{ github.repository }}/releases/download/${tag}/${fname}"
-          echo "file_url=$url"    >> "$GITHUB_OUTPUT"
-          echo "tag=$tag"         >> "$GITHUB_OUTPUT"
-          echo "filename=$fname"  >> "$GITHUB_OUTPUT"
+
+          url="${base}/${fname}"
+          iso_url=""
+          [ -f "out/${iso}" ] && iso_url="${base}/${iso}"
+
+          echo "file_url=$url"        >> "$GITHUB_OUTPUT"
+          echo "iso_url=$iso_url"     >> "$GITHUB_OUTPUT"
+          echo "iso_filename=$iso"    >> "$GITHUB_OUTPUT"
+          echo "tag=$tag"             >> "$GITHUB_OUTPUT"
+          echo "filename=$fname"      >> "$GITHUB_OUTPUT"
           {
             echo "### Border normalised"
             echo "- city: ${{ inputs.city }}"
-            echo "- url: $url"
+            echo "- 2:3:  $url"
+            echo "- ISO:  ${iso_url:-not built}"
             echo '```'
             cat norm.log
             echo '```'
@@ -101,9 +130,11 @@ jobs:
                   --arg slug '${{ inputs.slug }}' \
                   --arg url  '${{ steps.publish.outputs.file_url }}' \
                   --arg file '${{ steps.publish.outputs.filename }}' \
+                  --arg iso  '${{ steps.publish.outputs.iso_url }}' \
+                  --arg isof '${{ steps.publish.outputs.iso_filename }}' \
                   --arg key  '${{ inputs.record_key }}' \
                   --arg fid  '${{ inputs.folder_id }}' \
-                  '{status:"done", city:$city, slug:$slug, file_url:$url, filename:$file, record_key:$key, folder_id:$fid}')"
+                  '{status:"done", city:$city, slug:$slug, file_url:$url, filename:$file, iso_url:$iso, iso_filename:$isof, record_key:$key, folder_id:$fid}')"
 
       - name: Notify Make on failure
         if: ${{ failure() && inputs.callback_url != '' }}
