@@ -44,6 +44,9 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
         run: |
           set -euo pipefail
           python3 scripts/pipeline.py \
@@ -65,7 +68,7 @@ jobs:
           done
           rm -f run/*-hires*.jpg
           rm -rf run/_werk
-          echo "Masters verwijderd uit de uitvoer; alleen mockups blijven over."
+          echo "Masters verwijderd uit de uitvoer; ze staan op Drive."
           ls -la run/
 
       - name: Mockups en rapport als artifact

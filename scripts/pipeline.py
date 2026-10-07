@@ -173,6 +173,40 @@ def build_mockups(poster, out_dir, slug):
     return made
 
 
+# ---------- Drive ----------
+
+def upload_to_drive(city, slug, ratios, mockups):
+    """Zet de masters en mockups in de stadsmap op Drive.
+
+    Zonder secrets gebeurt er niets en loopt de run gewoon door: de masters
+    worden dan alleen in de workflow gecontroleerd en daarna weggegooid.
+    """
+    sys.path.insert(0, str(HERE))
+    import drive as D
+    if not D.available():
+        log("[6/6] Drive overgeslagen (geen GDRIVE_* secrets)")
+        return None
+    cfg = json.loads((ROOT / "config.json").read_text())
+    parent = cfg["drive"]["categories"]["travel"]
+    try:
+        d = D.Drive()
+        folder, made = d.folder(city, parent)
+        log(f"[6/6] Drive: map '{city}' {'aangemaakt' if made else 'bestond al'}")
+        ids = {}
+        for name, p in ratios.items():
+            ids[p.name] = d.upload(p, folder)
+            log(f"      master {name}: {p.name}")
+        for m in mockups:
+            d.upload(m, folder)
+        log(f"      {len(mockups)} mockups geupload")
+        return {"folder_id": folder,
+                "url": f"https://drive.google.com/drive/folders/{folder}",
+                "masters": ids, "mockups": len(mockups)}
+    except D.DriveError as e:
+        log(f"[6/6] Drive MISLUKT: {e}")
+        return {"error": str(e)}
+
+
 # ---------- main ----------
 
 def main():
@@ -200,9 +234,12 @@ def main():
     ratios = build_ratios(jpg, out, slug, spec.get("border", True))
     mockups = build_mockups(ratios["2x3"], out, slug)
 
+    drive_info = upload_to_drive(a.city, slug, ratios, mockups)
+
     from PIL import Image
     Image.MAX_IMAGE_PIXELS = None
     report = {"city": a.city, "poster_type": a.ptype, "slug": slug,
+              "drive": drive_info,
               "seconds": round(time.time() - start),
               "title": spec["title_template"].replace("{city}", a.city),
               "price": spec["price"], "masters": {}, "mockups": len(mockups)}
