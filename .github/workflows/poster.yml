@@ -1,0 +1,88 @@
+name: Poster (zonder Make)
+
+# De hele keten in code: genereren, upscalen, rand normaliseren naar 2:3 en
+# ISO, en alle mockups samenstellen. Geen Make, geen operations.
+#
+# Let op: deze repo is PUBLIEK, en artifacts zijn dan voor iedereen met
+# leesrechten te downloaden. Het printbestand verlaat deze workflow daarom
+# NIET. Het wordt gemaakt, gecontroleerd op afmetingen en checksum, en daarna
+# weggegooid. Alleen de mockups komen eruit; die staan toch al publiek op Etsy.
+# Zodra Drive is aangesloten gaan de masters daarheen.
+
+on:
+  workflow_dispatch:
+    inputs:
+      city:
+        description: "Stad, bijvoorbeeld Vught"
+        required: true
+        type: string
+      poster_type:
+        description: "Stijl"
+        required: true
+        default: vintagewatercolor
+        type: choice
+        options: [vintagewatercolor, diorama, flatvector, retroscreenprint]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installeer afhankelijkheden
+        run: python3 -m pip install --quiet --upgrade pillow numpy opencv-python-headless
+
+      - name: Draai de pipeline
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/pipeline.py \
+            --city "${{ inputs.city }}" \
+            --type "${{ inputs.poster_type }}" \
+            --out run
+
+      - name: Controleer de masters en gooi ze daarna weg
+        run: |
+          set -euo pipefail
+          echo "### Printbestanden (blijven in de workflow)" >> "$GITHUB_STEP_SUMMARY"
+          echo '| bestand | pixels | MB | sha256 |' >> "$GITHUB_STEP_SUMMARY"
+          echo '|---|---|---|---|' >> "$GITHUB_STEP_SUMMARY"
+          for f in run/*-hires*.jpg; do
+            px=$(python3 -c "from PIL import Image; Image.MAX_IMAGE_PIXELS=None; im=Image.open('$f'); print(f'{im.size[0]}x{im.size[1]}')")
+            mb=$(du -m "$f" | cut -f1)
+            sha=$(sha256sum "$f" | cut -c1-16)
+            echo "| $(basename "$f") | $px | ${mb} | ${sha} |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          rm -f run/*-hires*.jpg
+          rm -rf run/_werk
+          echo "Masters verwijderd uit de uitvoer; alleen mockups blijven over."
+          ls -la run/
+
+      - name: Mockups en rapport als artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: poster-${{ inputs.city }}-${{ inputs.poster_type }}
+          path: run/
+          retention-days: 7
+
+      - name: Samenvatting
+        if: always()
+        run: |
+          if [ -f run/report.json ]; then
+            {
+              echo "### Rapport"
+              echo '```json'
+              cat run/report.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
