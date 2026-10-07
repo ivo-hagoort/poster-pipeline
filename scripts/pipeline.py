@@ -127,22 +127,29 @@ def to_jpeg(src, dest, quality=97):
 
 # ---------- 4. verhoudingen ----------
 
-def build_ratios(src, out_dir, slug):
+def build_ratios(src, out_dir, slug, has_border=True):
+    """Bouwt de 2:3 en de ISO master.
+
+    Stijlen met een sierrand laten die detecteren; stijlen die het hele doek
+    vullen niet, want daar valt niets te vinden en is het doek zelf het kader.
+    """
     results = {}
-    jobs = [("2x3", [sys.executable, "-I", str(HERE / "normalize_border.py"),
-                     str(src), str(out_dir / f"{slug}-hires.jpg")]),
-            ("iso", [sys.executable, "-I", str(HERE / "normalize_ratio.py"),
-                     str(src), str(out_dir / f"{slug}-hires-iso.jpg"), "--ratio", "iso"])]
-    log("[4/5] verhoudingen opbouwen")
-    for name, cmd in jobs:
+    targets = [("2x3", "2:3", out_dir / f"{slug}-hires.jpg"),
+               ("iso", "iso", out_dir / f"{slug}-hires-iso.jpg")]
+    log(f"[4/5] verhoudingen opbouwen (sierrand: {'ja' if has_border else 'nee'})")
+    for name, ratio, dest in targets:
+        cmd = [sys.executable, "-I", str(HERE / "normalize_ratio.py"),
+               str(src), str(dest), "--ratio", ratio]
+        if not has_border:
+            cmd.append("--no-detect")
         p = subprocess.run(cmd, capture_output=True, text=True)
         tail = (p.stdout + p.stderr).strip().splitlines()
         log(f"      {name}: {'ok' if p.returncode == 0 else 'OVERGESLAGEN'} "
             f"- {tail[-1] if tail else ''}")
         if p.returncode == 0:
-            results[name] = Path(cmd[-3] if name == "iso" else cmd[-1])
+            results[name] = dest
     if "2x3" not in results:
-        sys.exit("de 2:3 master kon niet gebouwd worden; randdetectie faalde")
+        sys.exit("de 2:3 master kon niet gebouwd worden")
     return results
 
 
@@ -190,7 +197,7 @@ def main():
     src = Path(a.skip_generate) if a.skip_generate else generate(a.city, spec, work / "source.png")
     up = upscale(src, work / "upscaled.png", spec.get("upscale_factor", 4))
     jpg = to_jpeg(up, work / "upscaled.jpg")
-    ratios = build_ratios(jpg, out, slug)
+    ratios = build_ratios(jpg, out, slug, spec.get("border", True))
     mockups = build_mockups(ratios["2x3"], out, slug)
 
     from PIL import Image

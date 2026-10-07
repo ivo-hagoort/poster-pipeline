@@ -54,21 +54,28 @@ def sample_paper(img):
     return tuple(int(v) for v in np.median(stack, axis=0))
 
 
-def build(src, dst, ratio, threshold, quality, max_margin, long_edge):
+def build(src, dst, ratio, threshold, quality, max_margin, long_edge, detect=True):
     img = Image.open(src).convert("RGB")
     W, H = img.size
-    box = frame_bbox(img, threshold)
-    if box is None:
-        print("geen rand gevonden", file=sys.stderr)
-        return 2
 
-    x0, y0, x1, y1 = box
-    fw, fh = x1 - x0 + 1, y1 - y0 + 1
-    if fw < 0.5 * W or fh < 0.5 * H:
-        print(f"rand te klein ({fw}x{fh} op {W}x{H})", file=sys.stderr)
-        return 2
+    if detect:
+        box = frame_bbox(img, threshold)
+        if box is None:
+            print("geen rand gevonden", file=sys.stderr)
+            return 2
+        x0, y0, x1, y1 = box
+        fw, fh = x1 - x0 + 1, y1 - y0 + 1
+        if fw < 0.5 * W or fh < 0.5 * H:
+            print(f"rand te klein ({fw}x{fh} op {W}x{H})", file=sys.stderr)
+            return 2
+    else:
+        # Stijlen zonder sierrand vullen het hele doek. Er valt niets te
+        # detecteren: het doek zelf is het kader. Bij een bron die al 2:3 is
+        # komt de marge op nul uit en gaat het beeld ongewijzigd door.
+        x0, y0 = 0, 0
+        fw, fh = W, H
 
-    frame = img.crop((x0, y0, x1 + 1, y1 + 1))
+    frame = img.crop((x0, y0, x0 + fw, y0 + fh))
 
     m = (ratio * fh - fw) / (2 * (1 - ratio))
     if m < 0:
@@ -98,9 +105,9 @@ def build(src, dst, ratio, threshold, quality, max_margin, long_edge):
         canvas.save(dst)
 
     got = out_w / out_h
+    hoe = "ongewijzigd" if m == 0 else f"marge {m}px = {100 * m / fh:.1f}% van randhoogte"
     print(f"{dst}: {out_w}x{out_h} ratio {got:.6f} (doel {ratio:.6f}, "
-          f"afwijking {abs(got - ratio) / ratio * 100:.3f}%) marge {m}px "
-          f"= {100 * m / fh:.1f}% van randhoogte")
+          f"afwijking {abs(got - ratio) / ratio * 100:.3f}%) {hoe}")
     return 0
 
 
@@ -116,11 +123,14 @@ def main():
                    help="maximale marge als fractie van de randhoogte")
     p.add_argument("--long-edge", type=int, default=0,
                    help="schaal de lange zijde naar dit aantal pixels")
+    p.add_argument("--no-detect", action="store_true",
+                   help="geen sierrand zoeken; het hele doek is het kader")
     a = p.parse_args()
     r = RATIOS.get(a.ratio, None)
     if r is None:
         r = float(a.ratio)
-    sys.exit(build(a.src, a.dst, r, a.threshold, a.quality, a.max_margin, a.long_edge))
+    sys.exit(build(a.src, a.dst, r, a.threshold, a.quality, a.max_margin,
+                   a.long_edge, detect=not a.no_detect))
 
 
 if __name__ == "__main__":
